@@ -72,6 +72,25 @@ Refresh schedule
 </button>
 </section>
 <section>
+<h2>Today's training plan</h2>
+<div id="trainingPlan" class="schedule-box">Loading exercise targets...</div>
+<small>Suggested programming, not a rigid prescription. Choose substitutions and adjust volume to your experience.</small>
+</section>
+<section>
+<h2>Daily readiness check-in</h2>
+<p class="muted">Rate how you feel before training; Garmin data alone cannot decide the session.</p>
+<label>Energy (1 = very low, 5 = great)</label>
+<select id="energy"><option value="1">1 — Very low</option><option value="2">2 — Low</option><option value="3" selected>3 — Okay</option><option value="4">4 — Good</option><option value="5">5 — Great</option></select>
+<label>Soreness (1 = none, 5 = severe)</label>
+<select id="soreness"><option value="1">1 — None</option><option value="2">2 — Mild</option><option value="3" selected>3 — Moderate</option><option value="4">4 — High</option><option value="5">5 — Severe</option></select>
+<label>Other training / surf load</label>
+<select id="otherTraining"><option value="none">None</option><option value="light">Light activity</option><option value="hard">Hard surf, run or other training</option></select>
+<label>Notes (optional)</label>
+<input id="readinessNotes" maxlength="500" placeholder="Fatigue, soreness, niggles or context">
+<button class="secondary" id="saveCheckin">Save today's check-in</button>
+<div id="readiness" class="schedule-box">No check-in recorded today.</div>
+</section>
+<section>
 <h2>Garmin recovery</h2>
 <div id="recoveryCard" class="schedule-box" aria-live="polite">
 Loading recovery metrics...
@@ -107,6 +126,7 @@ Loading recovery metrics...
 <h2>Record working set</h2>
 <label>Exercise</label>
 <select id="exercise"></select>
+<p id="selectedTarget" class="muted"></p>
 
 <div class="check-row">
 <input type="checkbox" id="showAll">
@@ -165,6 +185,9 @@ let exerciseMap = new Map();
 let todaySchedule = null;
 let currentCycle = null;
 let historyRequest = 0;
+let prescriptions=[];
+let currentCheckin=null;
+let recoverySummary=null;
 
 const msg = text => $('message').textContent = text;
 
@@ -264,11 +287,16 @@ async function refreshAuth(){
     await restoreActiveSession();
     await loadSchedule();
     await loadRecovery();
+    await loadCheckin();
+    await loadPrescription();
     await loadHistory();
   }else{
     sessionId=null;
     todaySchedule=null;
     currentCycle=null;
+    prescriptions=[];
+    currentCheckin=null;
+    recoverySummary=null;
     $('active').textContent='Start a session to record sets.';
     $('finishControls').style.display='none';
     $('start').disabled=false;
@@ -393,10 +421,14 @@ async function loadRecovery(){
       .limit(7));
     root.replaceChildren();
     if(!rows.length){
+      recoverySummary=null;
       root.textContent='No recovery metrics available yet. Check your Garmin sync.';
+      updateReadiness();
       return;
     }
     const latest=rows[0];
+    recoverySummary = { ...latest, ageDays: dayDifference(latest.metric_date,today) };
+    updateReadiness();
     const freshness=dayDifference(latest.metric_date,today);
     const h=document.createElement('div');
     h.className='metric';
@@ -450,8 +482,151 @@ async function loadRecovery(){
     root.textContent='Could not load recovery metrics: '+e.message;
   }
 }
-$('refreshRecovery').onclick=loadRecovery;
+$('refreshRecovery').onclick=async()=>{await loadRecovery();await loadPrescription();};
 
+
+function readinessFlag(){
+  if(currentCheckin && (currentCheckin.energy<=2 || currentCheckin.soreness>=4 || currentCheckin.other_training==='hard')) return 'caution';
+  if(recoverySummary && recoverySummary.ageDays<=1){
+    const r=recoverySummary;
+    if(r.sleep_score!==null && Number(r.sleep_score)<60) return 'caution';
+    if(r.hrv_last_night_ms!==null && r.hrv_weekly_avg_ms!==null &&
+        Number(r.hrv_weekly_avg_ms)>0 &&
+        Number(r.hrv_last_night_ms)<Number(r.hrv_weekly_avg_ms)*0.8) return 'caution';
+  }
+  return 'normal';
+}
+function updateReadiness(){
+  const el=$('readiness');
+  if(!el)return;
+  const flag=readinessFlag();
+  const parts=[];
+  if(currentCheckin){
+    parts.push('Energy '+currentCheckin.energy+'/5 · Soreness '+currentCheckin.soreness+'/5 · Other load: '+currentCheckin.other_training+'.');
+  }else{
+    parts.push('No check-in yet. Your subjective fatigue is unknown.');
+  }
+  if(!recoverySummary) parts.push('No Garmin recovery record available.');
+  else if(recoverySummary.ageDays>1) parts.push('Garmin data is '+recoverySummary.ageDays+' days old: no current readiness inference.');
+  parts.push(flag==='caution'
+    ? 'CAUTION: consider reducing volume or intensity and reassess how you feel. Seek assessment for pain or illness.'
+    : 'No automatic restriction. Use technique, fatigue, soreness and prior training to guide the session.');
+  el.textContent=parts.join(' ');
+}
+async function loadCheckin(){
+  try{
+    const row=check(await sb.from('training_checkins')
+      .select('energy,soreness,other_training,notes')
+      .eq('checkin_date',sydneyDate())
+      .maybeSingle());
+    currentCheckin=row;
+    if(row){
+      $('energy').value=String(row.energy);
+      $('soreness').value=String(row.soreness);
+      $('otherTraining').value=row.other_training;
+      $('readinessNotes').value=row.notes||'';
+    }
+    updateReadiness();
+  }catch(e){
+    $('readiness').textContent='Unable to load check-in: '+e.message;
+  }
+}
+$('saveCheckin').onclick=async()=>{
+  const button=$('saveCheckin');button.disabled=true;
+  try{
+    const {data:{user}}=await sb.auth.getUser();
+    if(!user)throw Error('Sign in first.');
+    const row={
+      owner_id:user.id,
+      checkin_date:sydneyDate(),
+      energy:Number($('energy').value),
+      soreness:Number($('soreness').value),
+      other_training:$('otherTraining').value,
+      notes:$('readinessNotes').value.trim()||null,
+      updated_at:new Date().toISOString()
+    };
+    check(await sb.from('training_checkins').upsert(row,{onConflict:'owner_id,checkin_date'}));
+    currentCheckin=row;
+    updateReadiness();
+    await loadPrescription();
+    await loadPreviousPerformance();
+    msg('Readiness check-in saved.');
+  }catch(e){msg('Unable to save check-in: '+e.message)}
+  finally{button.disabled=false}
+};
+async function loadPrescription(){
+  prescriptions=[];
+  const root=$('trainingPlan');
+  if(!currentCycle){
+    root.textContent='No active cycle found.';
+    return;
+  }
+  const type=$('sessionType').value;
+  const schedule=todaySchedule;
+  const week=Math.floor(dayDifference(currentCycle.started_on,sydneyDate())/7)+1;
+  const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':'strength';
+  if(!Object.hasOwn(dayMapping,type)){
+    const easy=phase==='recovery';
+    const plans={
+      zone2:'60–75 minutes at a sustainable conversational effort. Start shorter if needed.',
+      recovery:'20–30 minutes of easy mobility, stretching or walking. Recovery is not another hard session.',
+      cardio:'Approximately 35 minutes of controlled moderate cardio; include warm-up and cool-down.',
+      hiit:'Example: warm up 10 minutes, then 4 × 2 minutes hard with 3 minutes easy between intervals; cool down. Scale to fitness and avoid all-out work when fatigued.'
+    };
+    root.textContent=easy
+      ? 'Recovery week: 20–30 minutes easy movement or rest. Avoid high-intensity intervals this week.'
+      : (plans[type]||'Follow your scheduled session.')+
+        (readinessFlag()==='caution'?' Recovery caution: consider an easier session today.':'');
+    showSelectedPrescription();
+    return;
+  }
+  try{
+    const rows=check(await sb.from('exercise_prescriptions')
+      .select('exercise_id,phase,workout_type,display_order,target_sets,min_reps,max_reps,rir_target,rest_seconds,notes,exercise_library(display_name,movement_type)')
+      .eq('cycle_id',currentCycle.id)
+      .eq('phase',phase)
+      .eq('workout_type',type)
+      .order('display_order'));
+    prescriptions=rows.map(p=>({
+      ...p,
+      movement_type:p.exercise_library?.movement_type||'other'
+    }));
+    root.replaceChildren();
+    if(!rows.length){root.textContent='No exercise targets available.';return;}
+    const heading=document.createElement('p');
+    heading.textContent='Week '+week+' · '+phase.toUpperCase()+' · '+(schedule?.workout_type===type?'Scheduled':'Substitute workout');
+    root.append(heading);
+    if(readinessFlag()==='caution'){
+      const caution=document.createElement('p');
+      caution.textContent='Recovery caution: consider fewer working sets and easier loads; do not chase personal bests.';
+      root.append(caution);
+    }
+    for(const p of prescriptions){
+      const line=document.createElement('div');
+      line.className='history-box';
+      const name=document.createElement('strong');
+      name.textContent=p.exercise_library?.display_name||exerciseMap.get(p.exercise_id)||'Exercise';
+      const detail=document.createElement('p');
+      detail.textContent=p.target_sets+' sets × '+p.min_reps+'–'+p.max_reps+
+        ' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s';
+      line.append(name,detail);
+      root.append(line);
+    }
+    const help=document.createElement('small');
+    help.textContent='Illustrative initial template. If time or fatigue requires it, prioritise key movements and reduce accessory volume. Pain is not an overload signal.';
+    root.append(help);
+    showSelectedPrescription();
+    await loadPreviousPerformance();
+  }catch(e){
+    root.textContent='Could not load exercise targets: '+e.message;
+  }
+}
+function showSelectedPrescription(){
+  const p=prescriptions.find(item=>item.exercise_id===$('exercise').value);
+  const notice=$('selectedTarget');
+  if(!notice)return;
+  notice.textContent=p?'Target: '+p.target_sets+' × '+p.min_reps+'–'+p.max_reps+' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s':'No structured target for this exercise.';
+}
 async function loadSchedule(){
   const root=$('todayCard');
   root.textContent='Loading training schedule...';
@@ -551,6 +726,7 @@ async function loadSchedule(){
       $('sessionType').value=schedule.workout_type;
       filterExercises();
     }
+    await loadPrescription();
 
   }catch(e){
     root.textContent='Could not load schedule: '+e.message;
@@ -610,9 +786,13 @@ function filterExercises(){
   }
 
   loadPreviousPerformance();
+  showSelectedPrescription();
 }
 
-$('sessionType').onchange=filterExercises;
+$('sessionType').onchange=()=>{
+  filterExercises();
+  loadPrescription();
+};
 $('showAll').onchange=filterExercises;
 $('exercise').onchange=loadPreviousPerformance;
 
@@ -697,14 +877,26 @@ async function loadPreviousPerformance(){
         `${s.reps??'-'} reps · RIR ${s.rir??'-'}`;
       root.append(line);
     }
-    const week=currentCycle?Math.floor(dayDifference(currentCycle.started_on,sydneyDate())/7)+1:null;
-    const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':'strength';
-    const cap=phase==='hypertrophy'?15:8;
-    const ready=latest.length>=2&&latest.every(s=>Number(s.reps)>=cap&&Number(s.rir)>=2&&Number(s.rir)<=4&&Number(s.weight_kg)>0);
-    $('progression').textContent=phase==='recovery'
-      ?'Recovery week: reduce training stress; avoid increasing loads.'
-      :ready?'All previous sets reached the top of the rep range at 2–4 RIR. Consider a small increase next time only if technique was consistent.'
-      :'Establish or maintain load until reps and RIR support progression. This is guidance, not an automatic prescription.';
+    const config=prescriptions.find(p=>p.exercise_id===ex);
+    const groupIds=[...new Set(prior.map(p=>p.session_id))].slice(0,2);
+    const matched=groupIds.map(id=>prior.filter(p=>p.session_id===id));
+    const consistent=matched.length===2 && matched.every(group=>
+      group.length>=Math.min(config?.target_sets??2,2) &&
+      group.every(set=>Number(set.reps)>=Number(config?.max_reps??15) &&
+        Number(set.rir)>=2 && Number(set.rir)<=4 &&
+        Number(set.weight_kg)>0)
+    ) && matched[0][0].weight_kg===matched[1][0].weight_kg;
+    const flag=readinessFlag();
+    const currentWeight=Number(matched[0]?.[0]?.weight_kg);
+    const increment=config?.movement_type==='compound'?2.5:1;
+    $('progression').textContent=
+      !config?'Select a programmed exercise to see a progression assessment.'
+      :config.phase==='recovery'?'Recovery week: reduce load and volume.'
+      :flag==='caution'?'Recovery caution: avoid increasing load; consider reduced sets or easier intensity.'
+      :matched.length<2?'Not enough history: complete two real sessions before a load increase is suggested.'
+      :consistent&&Number.isFinite(currentWeight)?
+        'Consider '+(currentWeight+increment).toFixed(1)+' kg next time (+'+increment+' kg), subject to available equipment, consistent technique and how you feel.':
+        'Maintain load or add reps within the target range. Do not force an increase.';
 
   }catch(e){
     if(request===historyRequest){
@@ -758,6 +950,7 @@ $('start').onclick=async()=>{
       (plannedId?' · Linked to schedule':' · Unscheduled');
 
     msg('Session started successfully.');
+    await loadPrescription();
     await loadHistory();
     await loadPreviousPerformance();
 
@@ -831,6 +1024,7 @@ $('save').onclick=async()=>{
     );
 
     await loadHistory();
+    await loadPreviousPerformance();
 
   }catch(e){
     msg('Could not save set: '+e.message);
