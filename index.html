@@ -127,6 +127,13 @@ Loading recovery metrics...
 <label>Exercise</label>
 <select id="exercise"></select>
 <p id="selectedTarget" class="muted"></p>
+<label>Smallest practical load increase (kg)</label>
+<select id="loadIncrement">
+<option value="0.5">0.5 kg</option>
+<option value="1">1 kg</option>
+<option value="2.5" selected>2.5 kg</option>
+<option value="5">5 kg</option>
+</select>
 
 <div class="check-row">
 <input type="checkbox" id="showAll">
@@ -582,7 +589,7 @@ async function loadPrescription(){
   }
   try{
     const rows=check(await sb.from('exercise_prescriptions')
-      .select('exercise_id,phase,workout_type,display_order,target_sets,min_reps,max_reps,rir_target,rest_seconds,notes,exercise_library(display_name,movement_type)')
+      .select('exercise_id,phase,workout_type,is_primary,display_order,target_sets,min_reps,max_reps,rir_target,rest_seconds,notes,exercise_library(display_name,movement_type)')
       .eq('cycle_id',currentCycle.id)
       .eq('phase',phase)
       .eq('workout_type',type)
@@ -601,19 +608,36 @@ async function loadPrescription(){
       caution.textContent='Recovery caution: consider fewer working sets and easier loads; do not chase personal bests.';
       root.append(caution);
     }
-    for(const p of prescriptions){
-      const line=document.createElement('div');
-      line.className='history-box';
-      const name=document.createElement('strong');
-      name.textContent=p.exercise_library?.display_name||exerciseMap.get(p.exercise_id)||'Exercise';
-      const detail=document.createElement('p');
-      detail.textContent=p.target_sets+' sets × '+p.min_reps+'–'+p.max_reps+
-        ' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s';
-      line.append(name,detail);
-      root.append(line);
+    const primary=prescriptions.filter(p=>p.is_primary);
+    const optional=prescriptions.filter(p=>!p.is_primary);
+    const totalSets=primary.reduce((n,p)=>n+Number(p.target_sets),0);
+    const total=document.createElement('p');
+    total.textContent=primary.length+' primary exercises · '+totalSets+' planned working sets.';
+    root.append(total);
+    function renderExercises(items,parent){
+      for(const p of items){
+        const line=document.createElement('div');
+        line.className='history-box';
+        const name=document.createElement('strong');
+        name.textContent=p.exercise_library?.display_name||exerciseMap.get(p.exercise_id)||'Exercise';
+        const detail=document.createElement('p');
+        detail.textContent=p.target_sets+' sets × '+p.min_reps+'–'+p.max_reps+
+          ' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s';
+        line.append(name,detail);
+        parent.append(line);
+      }
+    }
+    renderExercises(primary,root);
+    if(optional.length){
+      const details=document.createElement('details');
+      const summary=document.createElement('summary');
+      summary.textContent='Optional substitutions ('+optional.length+')';
+      details.append(summary);
+      renderExercises(optional,details);
+      root.append(details);
     }
     const help=document.createElement('small');
-    help.textContent='Illustrative initial template. If time or fatigue requires it, prioritise key movements and reduce accessory volume. Pain is not an overload signal.';
+    help.textContent='Primary work is a manageable starting template, not a required minimum. Reduce sets after demanding surf/run sessions; optional exercises are alternatives, not extra compulsory volume.';
     root.append(help);
     showSelectedPrescription();
     await loadPreviousPerformance();
@@ -625,7 +649,8 @@ function showSelectedPrescription(){
   const p=prescriptions.find(item=>item.exercise_id===$('exercise').value);
   const notice=$('selectedTarget');
   if(!notice)return;
-  notice.textContent=p?'Target: '+p.target_sets+' × '+p.min_reps+'–'+p.max_reps+' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s':'No structured target for this exercise.';
+  notice.textContent=p?'Target ('+(p.is_primary?'primary':'optional substitute')+'): '+p.target_sets+' × '+p.min_reps+'–'+p.max_reps+' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s':'No structured target for this exercise.';
+  if(p)$('loadIncrement').value=p.movement_type==='compound'?'2.5':'1';
 }
 async function loadSchedule(){
   const root=$('todayCard');
@@ -799,112 +824,113 @@ $('exercise').onchange=loadPreviousPerformance;
 async function loadPreviousPerformance(){
   const request=++historyRequest;
   const ex=$('exercise').value;
-
   if(!ex||!sb){
     $('previous').textContent='No exercise selected.';
+    $('progression').textContent='';
     return;
   }
-
   $('previous').textContent='Loading history...';
-
+  $('progression').textContent='Loading progression context...';
   try{
-    const sessions=check(
-      await sb.from('workout_sessions')
-        .select('id,started_at')
-        .order('started_at',{ascending:false})
-        .limit(200)
-    );
-
-    const ids=sessions.map(s=>s.id);
-
-    if(!ids.length){
-      if(request===historyRequest){
-        $('previous').textContent='No previous performance.';
-      }
-      return;
-    }
-
-    const sets=check(
-      await sb.from('workout_sets')
-        .select('session_id,set_number,weight_kg,reps,rir')
-        .eq('exercise_id',ex)
-        .eq('completed',true)
-        .eq('set_type','working')
-        .in('session_id',ids)
-        .limit(500)
-    );
-
+    // Restrict history to finished sessions; never infer progress from an unfinished workout.
+    const sessions=check(await sb.from('workout_sessions')
+      .select('id,started_at,ended_at,scheduled_workouts(phase)')
+      .not('ended_at','is',null)
+      .order('started_at',{ascending:false})
+      .limit(200));
     if(request!==historyRequest)return;
-
-    const dates=new Map(
-      sessions.map(s=>[s.id,s.started_at])
-    );
-
-    const prior=sets
-      .filter(s=>s.session_id!==sessionId)
-      .sort((a,b)=>{
-        const da=dates.get(a.session_id)||'';
-        const db=dates.get(b.session_id)||'';
-        return db.localeCompare(da) ||
-          a.set_number-b.set_number;
-      });
-
-    if(!prior.length){
-      $('progression').textContent='No baseline: use a controlled load and log actual RIR.';
-      $('previous').textContent='No previous performance.';
+    const ids=sessions.map(s=>s.id);
+    if(!ids.length){
+      $('previous').textContent='No completed workout history yet.';
+      $('progression').textContent='Record a baseline, then progress from actual performance.';
       return;
     }
-
+    const sets=check(await sb.from('workout_sets')
+      .select('session_id,set_number,weight_kg,reps,rir')
+      .eq('exercise_id',ex)
+      .eq('completed',true).eq('set_type','working')
+      .in('session_id',ids)
+      .limit(500));
+    if(request!==historyRequest)return;
+    const dates=new Map(sessions.map(s=>[s.id,s.started_at]));
+    const byId=new Map(sessions.map(s=>[s.id,s]));
+    const prior=sets.sort((a,b)=>
+      (dates.get(b.session_id)||'').localeCompare(dates.get(a.session_id)||'')
+      ||a.set_number-b.set_number);
+    if(!prior.length){
+      $('previous').textContent='No completed sets for this exercise.';
+      $('progression').textContent='Establish a baseline with controlled technique and honest RIR.';
+      return;
+    }
     const latestId=prior[0].session_id;
-    const latest=prior
-      .filter(s=>s.session_id===latestId)
-      .sort((a,b)=>a.set_number-b.set_number);
-
+    const latest=prior.filter(s=>s.session_id===latestId).sort((a,b)=>a.set_number-b.set_number);
     const root=$('previous');
     root.replaceChildren();
-
     const heading=document.createElement('p');
-    heading.textContent='Previous session: '+
-      new Date(dates.get(latestId)).toLocaleDateString(
-        'en-AU',{timeZone:TZ}
-      );
+    heading.textContent='Previous completed session: '+new Date(dates.get(latestId))
+      .toLocaleDateString('en-AU',{timeZone:TZ});
     root.append(heading);
-
-    for(const s of latest){
+    for(const item of latest){
       const line=document.createElement('p');
-      line.textContent=
-        `Set ${s.set_number}: ${s.weight_kg??'-'} kg × `+
-        `${s.reps??'-'} reps · RIR ${s.rir??'-'}`;
+      line.textContent='Set '+item.set_number+': '+(item.weight_kg??'-')+
+        ' kg × '+(item.reps??'-')+' reps · RIR '+(item.rir??'-');
       root.append(line);
     }
     const config=prescriptions.find(p=>p.exercise_id===ex);
-    const groupIds=[...new Set(prior.map(p=>p.session_id))].slice(0,2);
-    const matched=groupIds.map(id=>prior.filter(p=>p.session_id===id));
-    const consistent=matched.length===2 && matched.every(group=>
-      group.length>=Math.min(config?.target_sets??2,2) &&
-      group.every(set=>Number(set.reps)>=Number(config?.max_reps??15) &&
-        Number(set.rir)>=2 && Number(set.rir)<=4 &&
-        Number(set.weight_kg)>0)
-    ) && matched[0][0].weight_kg===matched[1][0].weight_kg;
-    const flag=readinessFlag();
-    const currentWeight=Number(matched[0]?.[0]?.weight_kg);
-    const increment=config?.movement_type==='compound'?2.5:1;
-    $('progression').textContent=
-      !config?'Select a programmed exercise to see a progression assessment.'
-      :config.phase==='recovery'?'Recovery week: reduce load and volume.'
-      :flag==='caution'?'Recovery caution: avoid increasing load; consider reduced sets or easier intensity.'
-      :matched.length<2?'Not enough history: complete two real sessions before a load increase is suggested.'
-      :consistent&&Number.isFinite(currentWeight)?
-        'Consider '+(currentWeight+increment).toFixed(1)+' kg next time (+'+increment+' kg), subject to available equipment, consistent technique and how you feel.':
-        'Maintain load or add reps within the target range. Do not force an increase.';
-
+    if(!config){
+      $('progression').textContent='No current-phase target available for this exercise.';
+      return;
+    }
+    if(config.phase==='recovery'){
+      $('progression').textContent='Recovery week: lighter work, lower volume; do not increase weight.';
+      return;
+    }
+    if(!currentCheckin){
+      $('progression').textContent='Save today’s energy/soreness check-in before considering a weight increase.';
+      return;
+    }
+    if(readinessFlag()==='caution'){
+      $('progression').textContent='Recovery caution: hold or reduce intensity; avoid load increases.';
+      return;
+    }
+    // Only compare same-phase, scheduled and COMPLETED sessions. Phase transitions
+    // reset eligibility until two more comparable sessions are available.
+    const eligibleIds=[...new Set(prior.map(p=>p.session_id))]
+      .filter(id=>byId.get(id)?.scheduled_workouts?.phase===config.phase)
+      .slice(0,2);
+    if(eligibleIds.length<2){
+      $('progression').textContent='Need two completed '+config.phase+' sessions for this exercise before suggesting a weight increase.';
+      return;
+    }
+    const groups=eligibleIds.map(id=>prior.filter(p=>p.session_id===id));
+    const olderDate=dates.get(eligibleIds[1]);
+    const weeksOld=(Date.now()-new Date(olderDate).getTime())/86400000;
+    if(weeksOld>35){
+      $('progression').textContent='Comparison is over five weeks old. Re-establish your baseline before increasing.';
+      return;
+    }
+    const required=Math.max(2,Number(config.target_sets));
+    const firstLoad=Number(groups[0][0]?.weight_kg);
+    const consistent=firstLoad>0&&groups.every(group=>
+      group.length>=required && group.every(item=>
+        Number(item.weight_kg)===firstLoad &&
+        item.reps!==null && Number(item.reps)>=Number(config.max_reps) &&
+        item.rir!==null && Number(item.rir)>=2 && Number(item.rir)<=4
+      )
+    );
+    const increment=Number($('loadIncrement').value);
+    $('progression').textContent=consistent&&Number.isFinite(increment)&&increment>0
+      ?'Optional next load: '+(firstLoad+increment).toFixed(1)+' kg (+'+increment+
+         ' kg). Both recent comparable sessions reached the top of the rep range. Only increase if equipment permits and technique stays controlled.'
+      :'Maintain your load or build repetitions within the target range. Avoid increasing until all prescribed sets are consistent.';
   }catch(e){
     if(request===historyRequest){
-      $('previous').textContent=
-        'Could not load history: '+e.message;
+      $('previous').textContent='Could not retrieve exercise history: '+e.message;
+      $('progression').textContent='No reliable weight recommendation available.';
     }
   }
 }
+$('loadIncrement').onchange=loadPreviousPerformance;
 
 $('start').onclick=async()=>{
   const button=$('start');
