@@ -188,7 +188,6 @@ let historyRequest = 0;
 let prescriptions=[];
 let currentCheckin=null;
 let recoverySummary=null;
-const REAL_DATE = () => sydneyDate();
 
 const msg = text => $('message').textContent = text;
 
@@ -567,6 +566,7 @@ async function loadPrescription(){
   const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':'strength';
   if(!Object.hasOwn(dayMapping,type)){
     root.textContent='Today’s '+(workoutNames[type]||type)+' session follows the calendar guidance. This first release does not prescribe cardio intervals or workloads.';
+    showSelectedPrescription();
     return;
   }
   try{
@@ -600,6 +600,7 @@ async function loadPrescription(){
     help.textContent='Illustrative initial template. If time or fatigue requires it, prioritise key movements and reduce accessory volume. Pain is not an overload signal.';
     root.append(help);
     showSelectedPrescription();
+    await loadPreviousPerformance();
   }catch(e){
     root.textContent='Could not load exercise targets: '+e.message;
   }
