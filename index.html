@@ -86,6 +86,13 @@ Refresh schedule
 </select>
 <button id="start">Start new session</button>
 <p id="active" class="muted">Start a session to record sets.</p>
+<div id="finishControls" style="display:none">
+<label>Session RPE (optional, 0–10)</label>
+<input id="sessionRpe" type="number" min="0" max="10" step="0.5">
+<label>Session notes (optional)</label>
+<input id="sessionNotes" maxlength="1000" placeholder="How did it feel?">
+<button id="finish">Finish session</button>
+</div>
 </section>
 
 <section>
@@ -102,7 +109,7 @@ Refresh schedule
 <strong>Previous performance</strong>
 <div id="previous" class="muted" style="margin-top:8px">
 Select an exercise to view history.
-</div>
+</div><div id="progression" class="muted" style="margin-top:12px"></div>
 </div>
 
 <div class="grid">
@@ -246,6 +253,7 @@ async function refreshAuth(){
 
   if(user){
     await loadExercises();
+    await restoreActiveSession();
     await loadSchedule();
     await loadHistory();
   }else{
@@ -253,6 +261,8 @@ async function refreshAuth(){
     todaySchedule=null;
     currentCycle=null;
     $('active').textContent='Start a session to record sets.';
+    $('finishControls').style.display='none';
+    $('start').disabled=false;
   }
 }
 
@@ -293,6 +303,49 @@ $('logout').onclick=async()=>{
   await sb.auth.signOut();
   sessionId=null;
   msg('Signed out.');
+};
+
+async function restoreActiveSession(){
+  const open=check(await sb.from('workout_sessions')
+    .select('id,started_at,session_type,rpe,notes')
+    .is('ended_at',null)
+    .order('started_at',{ascending:false}).limit(10));
+  if(open.length>1)msg('Several open sessions detected; resuming the newest.');
+  const s=open[0];
+  sessionId=s?.id||null;
+  $('start').disabled=!!sessionId;
+  $('finishControls').style.display=sessionId?'block':'none';
+  if(s){
+    $('sessionType').value=s.session_type;
+    $('sessionRpe').value=s.rpe??'';
+    $('sessionNotes').value=s.notes??'';
+    $('active').textContent='Resumed: '+new Date(s.started_at).toLocaleString('en-AU',{timeZone:TZ});
+    filterExercises();
+  }else{
+    $('active').textContent='Start a session to record sets.';
+  }
+}
+
+$('finish').onclick=async()=>{
+  if(!sessionId)return;
+  $('finish').disabled=true;
+  try{
+    const raw=$('sessionRpe').value.trim();
+    const rpe=raw===''?null:Number(raw);
+    if(rpe!==null&&(!Number.isFinite(rpe)||rpe<0||rpe>10))throw Error('RPE must be 0–10.');
+    const row=check(await sb.from('workout_sessions')
+      .update({ended_at:new Date().toISOString(),rpe,notes:$('sessionNotes').value.trim()||null})
+      .eq('id',sessionId).is('ended_at',null).select('id').maybeSingle());
+    if(!row)throw Error('Session already finished or not accessible.');
+    sessionId=null;
+    $('start').disabled=false;
+    $('finishControls').style.display='none';
+    $('active').textContent='Workout completed.';
+    msg('Session saved. Schedule status is unchanged until verified completion logic is implemented.');
+    await loadHistory();
+    await loadPreviousPerformance();
+  }catch(e){msg('Could not finish: '+e.message)}
+  finally{$('finish').disabled=false}
 };
 
 async function loadSchedule(){
@@ -513,6 +566,7 @@ async function loadPreviousPerformance(){
       });
 
     if(!prior.length){
+      $('progression').textContent='No baseline: use a controlled load and log actual RIR.';
       $('previous').textContent='No previous performance.';
       return;
     }
@@ -539,6 +593,14 @@ async function loadPreviousPerformance(){
         `${s.reps??'-'} reps · RIR ${s.rir??'-'}`;
       root.append(line);
     }
+    const week=currentCycle?Math.floor(dayDifference(currentCycle.started_on,sydneyDate())/7)+1:null;
+    const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':'strength';
+    const cap=phase==='hypertrophy'?15:8;
+    const ready=latest.length>=2&&latest.every(s=>Number(s.reps)>=cap&&Number(s.rir)>=2&&Number(s.rir)<=4&&Number(s.weight_kg)>0);
+    $('progression').textContent=phase==='recovery'
+      ?'Recovery week: reduce training stress; avoid increasing loads.'
+      :ready?'All previous sets reached the top of the rep range at 2–4 RIR. Consider a small increase next time only if technique was consistent.'
+      :'Establish or maintain load until reps and RIR support progression. This is guidance, not an automatic prescription.';
 
   }catch(e){
     if(request===historyRequest){
@@ -553,12 +615,7 @@ $('start').onclick=async()=>{
   button.disabled=true;
 
   try{
-    if(sessionId){
-      throw Error(
-        'A session is already active. Refresh the page '+
-        'before starting another session.'
-      );
-    }
+    if(sessionId)throw Error('Finish the active session first.');
 
     const {data:{user}}=await sb.auth.getUser();
     if(!user)throw Error('Sign in first.');
@@ -587,6 +644,8 @@ $('start').onclick=async()=>{
     );
 
     sessionId=row.id;
+    $('finishControls').style.display='block';
+    $('sessionRpe').value='';$('sessionNotes').value='';
 
     $('active').textContent=
       'Active: '+new Date(row.started_at).toLocaleString(
@@ -601,7 +660,7 @@ $('start').onclick=async()=>{
   }catch(e){
     msg('Could not start session: '+e.message);
   }finally{
-    button.disabled=false;
+    button.disabled=!!sessionId;
   }
 };
 
