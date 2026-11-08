@@ -3,679 +3,745 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Huberman Workout Logger</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Huberman Training Log</title>
 <style>
-:root {
-  color-scheme: dark;
-  font-family: system-ui, sans-serif;
-}
-body {
-  background: #0c1320;
-  color: #e8eef7;
-  margin: 0;
-  padding: 20px;
-}
-main { max-width: 550px; margin: auto; }
-h1 { font-size: 1.7rem; }
-section {
-  background: #182438;
-  border: 1px solid #30425b;
-  border-radius: 14px;
-  padding: 16px;
-  margin: 16px 0;
-}
-label {
-  display: block;
-  margin: 10px 0 5px;
-  color: #c9d7e9;
-}
-input, select, button {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 12px;
-  border-radius: 9px;
-  border: 1px solid #60728b;
-  font-size: 16px;
-}
-input, select {
-  background: #0f1c2d;
-  color: white;
-}
-button {
-  background: #68b6ee;
-  color: #071523;
-  font-weight: 700;
-  margin-top: 12px;
-  border: 0;
-}
-button.secondary {
-  background: #30425b;
-  color: white;
-}
-button:disabled { opacity: .5; }
-small, .muted { color: #b4c4d7; }
-#message { white-space: pre-wrap; }
-#app { display: none; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.grid input { min-width: 0; }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-td, th {
-  padding: 8px 3px;
-  text-align: left;
-  border-bottom: 1px solid #344760;
-}
-.history-box {
-  background: #101e30;
-  border: 1px solid #344760;
-  border-radius: 10px;
-  padding: 12px;
-  margin-top: 14px;
-}
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.check-row input {
-  width: auto;
-  accent-color: #68b6ee;
-}
-.check-row label { margin: 0; }
-a { color: #9bd6ff; }
+:root{color-scheme:dark;font-family:system-ui,sans-serif}
+*{box-sizing:border-box}
+body{background:#0c1320;color:#e8eef7;margin:0;padding:20px}
+main{max-width:550px;margin:auto}
+h1{font-size:1.7rem}
+section{background:#182438;border:1px solid #30425b;border-radius:14px;padding:16px;margin:16px 0}
+label{display:block;margin:10px 0 5px;color:#c9d7e9}
+input,select,button{width:100%;padding:12px;border-radius:9px;border:1px solid #60728b;font-size:16px}
+input,select{background:#0f1c2d;color:white}
+button{background:#68b6ee;color:#071523;font-weight:700;margin-top:12px;border:0}
+button.secondary{background:#30425b;color:white}
+button:disabled{opacity:.5}
+small,.muted{color:#b4c4d7}
+#message{white-space:pre-wrap}
+#app{display:none}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.grid input{min-width:0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:8px 3px;text-align:left;border-bottom:1px solid #344760}
+.history-box,.schedule-box{background:#101e30;border:1px solid #344760;border-radius:10px;padding:12px;margin-top:12px}
+.check-row{display:flex;align-items:center;gap:10px;margin-top:14px}
+.check-row input{width:auto}
+.check-row label{margin:0}
+.metric{font-size:1.5rem;font-weight:750;margin:6px 0}
+.tag{display:inline-block;background:#30425b;border-radius:20px;padding:5px 10px;font-size:12px;margin:3px 4px 3px 0}
+a{color:#9bd6ff}
 </style>
 </head>
-
 <body>
 <main>
 <h1>Training Log</h1>
-<p class="muted">
-  Private workout history · Huberman training coach
-</p>
+<p class="muted">Private workout history · Huberman training coach</p>
 
 <section id="setup">
-  <h2>Initial setup</h2>
-  <p>Enter your Supabase project URL and publishable key.</p>
-
-  <label>Project URL</label>
-  <input id="url"
-    placeholder="https://project.supabase.co"
-    autocomplete="off">
-
-  <label>Publishable key</label>
-  <input id="key"
-    placeholder="sb_publishable_..."
-    autocomplete="off">
-
-  <button id="connect">Connect</button>
-
-  <small>
-    Never enter a secret or service-role key.
-  </small>
+<h2>Initial setup</h2>
+<p>Enter your Supabase project URL and publishable key.</p>
+<label>Project URL</label>
+<input id="url" placeholder="https://project.supabase.co">
+<label>Publishable key</label>
+<input id="key" placeholder="sb_publishable_...">
+<button id="connect">Connect</button>
+<small>Never enter a secret or service-role key.</small>
 </section>
 
 <section id="auth" style="display:none">
-  <h2>Sign in</h2>
-
-  <label>Email</label>
-  <input id="email" type="email" autocomplete="email">
-
-  <label>Password</label>
-  <input id="password" type="password"
-    autocomplete="current-password">
-
-  <button id="login">Sign in</button>
+<h2>Sign in</h2>
+<label>Email</label>
+<input id="email" type="email" autocomplete="email">
+<label>Password</label>
+<input id="password" type="password" autocomplete="current-password">
+<button id="login">Sign in</button>
 </section>
 
 <div id="app">
 
 <section>
-  <button class="secondary" id="logout">Sign out</button>
-
-  <h2>Start session</h2>
-
-  <label>Workout type</label>
-  <select id="sessionType">
-    <option value="legs">Monday — Legs</option>
-    <option value="torso_neck">
-      Wednesday — Torso &amp; neck
-    </option>
-    <option value="arms_calves_neck">
-      Saturday — Arms, calves &amp; neck
-    </option>
-    <option value="zone2">Sunday — Zone 2</option>
-    <option value="recovery">Tuesday — Recovery</option>
-    <option value="cardio">Thursday — Cardio</option>
-    <option value="hiit">Friday — HIIT</option>
-  </select>
-
-  <button id="start">Start new session</button>
-  <p id="active" class="muted">
-    Start a new session to record sets.
-  </p>
+<button class="secondary" id="logout">Sign out</button>
+<h2>Today's training</h2>
+<div id="todayCard" class="schedule-box">
+Loading your training calendar...
+</div>
+<button class="secondary" id="refreshSchedule">
+Refresh schedule
+</button>
 </section>
 
 <section>
-  <h2>Record working set</h2>
-
-  <label>Exercise</label>
-  <select id="exercise"></select>
-
-  <div class="check-row" style="margin-top:14px">
-    <input type="checkbox" id="showAll">
-    <label for="showAll">Show all exercises</label>
-  </div>
-
-  <div class="history-box">
-    <strong>Previous performance</strong>
-    <div id="previous" class="muted" style="margin-top:8px">
-      Select an exercise to view its history.
-    </div>
-  </div>
-
-  <div class="grid">
-    <div>
-      <label>Kg</label>
-      <input id="weight" type="number"
-        step="0.5" min="0" value="100">
-    </div>
-    <div>
-      <label>Reps</label>
-      <input id="reps" type="number"
-        step="1" min="0" value="8">
-    </div>
-    <div>
-      <label>RIR</label>
-      <input id="rir" type="number"
-        step="0.5" min="0" max="10" value="2">
-    </div>
-  </div>
-
-  <button id="save">Save working set</button>
-  <small>
-    Enter your actual performance before saving.
-  </small>
+<h2>Start session</h2>
+<label>Workout type</label>
+<select id="sessionType">
+<option value="legs">Monday — Legs</option>
+<option value="recovery">Tuesday — Recovery</option>
+<option value="torso_neck">Wednesday — Torso &amp; neck</option>
+<option value="cardio">Thursday — Cardio</option>
+<option value="hiit">Friday — HIIT</option>
+<option value="arms_calves_neck">Saturday — Arms, calves &amp; neck</option>
+<option value="zone2">Sunday — Zone 2</option>
+</select>
+<button id="start">Start new session</button>
+<p id="active" class="muted">Start a session to record sets.</p>
 </section>
 
 <section>
-  <h2>Recent sets</h2>
-  <div id="history">No sets yet.</div>
+<h2>Record working set</h2>
+<label>Exercise</label>
+<select id="exercise"></select>
+
+<div class="check-row">
+<input type="checkbox" id="showAll">
+<label for="showAll">Show all exercises</label>
+</div>
+
+<div class="history-box">
+<strong>Previous performance</strong>
+<div id="previous" class="muted" style="margin-top:8px">
+Select an exercise to view history.
+</div>
+</div>
+
+<div class="grid">
+<div>
+<label>Kg</label>
+<input id="weight" type="number" step="0.5" min="0" placeholder="Kg">
+</div>
+<div>
+<label>Reps</label>
+<input id="reps" type="number" step="1" min="0" placeholder="Reps">
+</div>
+<div>
+<label>RIR</label>
+<input id="rir" type="number" step="0.5" min="0" max="10" placeholder="RIR">
+</div>
+</div>
+
+<button id="save">Save working set</button>
+<small>Enter actual performance. No weights are automatically prescribed.</small>
+</section>
+
+<section>
+<h2>Recent sets</h2>
+<div id="history">No sets yet.</div>
 </section>
 
 </div>
 
 <section>
-  <div id="message" role="status"
-    aria-live="polite"></div>
+<div id="message" role="status" aria-live="polite"></div>
 </section>
-
 </main>
 
 <script type="module">
-import { createClient } from
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import {createClient} from
+'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const $ = id => document.getElementById(id);
+const TZ = 'Australia/Sydney';
 
 let sb;
 let sessionId = null;
 let exercises = [];
 let exerciseMap = new Map();
+let todaySchedule = null;
+let currentCycle = null;
 let historyRequest = 0;
 
-const msg = text => {
-  $('message').textContent = text;
-};
+const msg = text => $('message').textContent = text;
 
-function check(result) {
-  if (result.error) throw result.error;
+function check(result){
+  if(result.error) throw result.error;
   return result.data;
 }
 
-async function init() {
-  const u = localStorage.getItem('sb_url');
-  const k = localStorage.getItem('sb_key');
+function sydneyDate(){
+  return new Intl.DateTimeFormat('en-CA',{
+    timeZone:TZ,
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit'
+  }).format(new Date());
+}
 
-  if (!u || !k) return;
+function dayDifference(start,end){
+  const a = Date.parse(start+'T00:00:00Z');
+  const b = Date.parse(end+'T00:00:00Z');
+  return Math.floor((b-a)/86400000);
+}
 
-  $('url').value = u;
-  $('key').value = k;
+function displayDate(date){
+  return new Intl.DateTimeFormat('en-AU',{
+    timeZone:'UTC',
+    day:'numeric',
+    month:'short',
+    year:'numeric'
+  }).format(new Date(date+'T12:00:00Z'));
+}
 
-  sb = createClient(u, k);
+const workoutNames = {
+  legs:'Legs',
+  recovery:'Recovery and mobility',
+  torso_neck:'Torso and neck',
+  cardio:'Moderate cardio',
+  hiit:'HIIT',
+  arms_calves_neck:'Arms, calves and neck',
+  zone2:'Zone 2 endurance'
+};
 
-  $('setup').style.display = 'none';
-  $('auth').style.display = 'block';
+const dayMapping = {
+  legs:1,
+  torso_neck:3,
+  arms_calves_neck:6
+};
 
-  sb.auth.onAuthStateChange(() => {
-    setTimeout(refreshAuth, 0);
+function phaseDescription(phase,week,type){
+  if(phase==='recovery'){
+    return 'Recovery week — reduce training stress and volume.';
+  }
+  if(!Object.hasOwn(dayMapping,type)){
+    return 'Follow the scheduled cardiovascular or recovery session.';
+  }
+  if(phase==='strength'){
+    return 'Strength phase — 4–8 reps per working set.';
+  }
+  if(phase==='hypertrophy'){
+    return 'Hypertrophy phase — 8–15 reps per working set.';
+  }
+  return 'Follow your planned training session.';
+}
+
+async function init(){
+  const u=localStorage.getItem('sb_url');
+  const k=localStorage.getItem('sb_key');
+  if(!u||!k)return;
+
+  $('url').value=u;
+  $('key').value=k;
+  sb=createClient(u,k);
+
+  $('setup').style.display='none';
+  $('auth').style.display='block';
+
+  sb.auth.onAuthStateChange(()=>{
+    setTimeout(refreshAuth,0);
   });
 
   await refreshAuth();
 }
 
-async function refreshAuth() {
-  if (!sb) return;
+async function refreshAuth(){
+  if(!sb)return;
+  const {data:{user},error}=await sb.auth.getUser();
 
-  const { data: { user }, error } =
-    await sb.auth.getUser();
-
-  if (error && error.name !== 'AuthSessionMissingError') {
+  if(error && error.name!=='AuthSessionMissingError'){
     msg(error.message);
   }
 
-  $('auth').style.display = user ? 'none' : 'block';
-  $('app').style.display = user ? 'block' : 'none';
+  $('auth').style.display=user?'none':'block';
+  $('app').style.display=user?'block':'none';
 
-  if (user) {
+  if(user){
     await loadExercises();
+    await loadSchedule();
     await loadHistory();
-  } else {
-    sessionId = null;
-    $('active').textContent =
-      'Start a new session to record sets.';
+  }else{
+    sessionId=null;
+    todaySchedule=null;
+    currentCycle=null;
+    $('active').textContent='Start a session to record sets.';
   }
 }
 
-$('connect').onclick = async () => {
-  const u = $('url').value.trim();
-  const k = $('key').value.trim();
+$('connect').onclick=async()=>{
+  const u=$('url').value.trim();
+  const k=$('key').value.trim();
 
-  if (
+  if(
     !/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(u) ||
     !k.startsWith('sb_publishable_')
-  ) {
-    return msg(
-      'Enter the project base URL and publishable key.'
-    );
+  ){
+    return msg('Enter the project URL and publishable key.');
   }
 
-  localStorage.setItem(
-    'sb_url', u.replace(/\/$/, '')
-  );
-  localStorage.setItem('sb_key', k);
-
+  localStorage.setItem('sb_url',u.replace(/\/$/,''));
+  localStorage.setItem('sb_key',k);
   await init();
 };
 
-$('login').onclick = async () => {
-  try {
-    const email = $('email').value.trim();
-
-    if (!email) throw Error('Enter your email.');
+$('login').onclick=async()=>{
+  try{
+    const email=$('email').value.trim();
+    if(!email)throw Error('Enter your email.');
 
     check(await sb.auth.signInWithPassword({
       email,
-      password: $('password').value
+      password:$('password').value
     }));
 
-    $('password').value = '';
+    $('password').value='';
     msg('Signed in.');
-  } catch (e) {
-    msg('Sign-in failed: ' + e.message);
+  }catch(e){
+    msg('Sign-in failed: '+e.message);
   }
 };
 
-$('logout').onclick = async () => {
+$('logout').onclick=async()=>{
   await sb.auth.signOut();
-  sessionId = null;
+  sessionId=null;
   msg('Signed out.');
 };
 
-async function loadExercises() {
-  try {
-    exercises = check(
+async function loadSchedule(){
+  const root=$('todayCard');
+  root.textContent='Loading training schedule...';
+  todaySchedule=null;
+  currentCycle=null;
+
+  try{
+    const today=sydneyDate();
+
+    const cycles=check(
+      await sb.from('training_cycles')
+        .select('id,started_on,notes')
+        .lte('started_on',today)
+        .order('started_on',{ascending:false})
+        .limit(20)
+    );
+
+    const matches=[];
+
+    for(const cycle of cycles){
+      const elapsed=dayDifference(cycle.started_on,today);
+      if(elapsed>=0 && elapsed<91)matches.push(cycle);
+    }
+
+    if(matches.length===0){
+      root.textContent=
+        'No active training cycle for '+displayDate(today)+'.';
+      return;
+    }
+
+    if(matches.length>1){
+      root.textContent=
+        'Overlapping training cycles found. Check Supabase.';
+      return;
+    }
+
+    currentCycle=matches[0];
+
+    const schedule=check(
+      await sb.from('scheduled_workouts')
+        .select('id,cycle_id,workout_date,workout_type,phase,status,notes')
+        .eq('cycle_id',currentCycle.id)
+        .eq('workout_date',today)
+        .maybeSingle()
+    );
+
+    if(!schedule){
+      root.textContent='No scheduled workout for today.';
+      return;
+    }
+
+    todaySchedule=schedule;
+
+    const week=Math.floor(
+      dayDifference(currentCycle.started_on,today)/7
+    )+1;
+
+    const name=workoutNames[schedule.workout_type] ||
+      schedule.workout_type;
+
+    root.replaceChildren();
+
+    const date=document.createElement('p');
+    date.className='muted';
+    date.textContent=displayDate(today);
+    root.append(date);
+
+    const title=document.createElement('div');
+    title.className='metric';
+    title.textContent=name;
+    root.append(title);
+
+    for(const label of [
+      'Week '+week+' of 13',
+      schedule.phase.toUpperCase(),
+      'Status: '+schedule.status
+    ]){
+      const tag=document.createElement('span');
+      tag.className='tag';
+      tag.textContent=label;
+      root.append(tag);
+    }
+
+    const description=document.createElement('p');
+    description.textContent=phaseDescription(
+      schedule.phase,week,schedule.workout_type
+    );
+    root.append(description);
+
+    if(schedule.notes){
+      const notes=document.createElement('small');
+      notes.textContent=schedule.notes;
+      root.append(notes);
+    }
+
+    if(!sessionId){
+      $('sessionType').value=schedule.workout_type;
+      filterExercises();
+    }
+
+  }catch(e){
+    root.textContent='Could not load schedule: '+e.message;
+    msg('Schedule error: '+e.message);
+  }
+}
+
+$('refreshSchedule').onclick=loadSchedule;
+
+async function loadExercises(){
+  try{
+    exercises=check(
       await sb.from('exercise_library')
         .select('id,display_name,protocol_day')
         .order('display_name')
     );
 
-    exerciseMap = new Map(
-      exercises.map(e => [e.id, e.display_name])
+    exerciseMap=new Map(
+      exercises.map(e=>[e.id,e.display_name])
     );
 
     filterExercises();
-  } catch (e) {
-    msg('Could not load exercises: ' + e.message);
+  }catch(e){
+    msg('Could not load exercises: '+e.message);
   }
 }
 
-const dayMapping = {
-  legs: 1,
-  torso_neck: 3,
-  arms_calves_neck: 6
-};
+function filterExercises(){
+  const previous=$('exercise').value;
+  const type=$('sessionType').value;
+  const day=dayMapping[type];
 
-function filterExercises() {
-  const oldValue = $('exercise').value;
-  const type = $('sessionType').value;
-  const day = dayMapping[type];
-  const showAll = $('showAll').checked;
-
-  const filtered = showAll || day === undefined
+  const filtered=$('showAll').checked || day===undefined
     ? exercises
     : exercises.filter(
-        e => Number(e.protocol_day) === day
+        e=>Number(e.protocol_day)===day
       );
 
   $('exercise').replaceChildren();
 
-  for (const exercise of filtered) {
-    const option = document.createElement('option');
-    option.value = exercise.id;
-    option.textContent = exercise.display_name;
+  for(const exercise of filtered){
+    const option=document.createElement('option');
+    option.value=exercise.id;
+    option.textContent=exercise.display_name;
     $('exercise').append(option);
   }
 
-  if (filtered.some(e => e.id === oldValue)) {
-    $('exercise').value = oldValue;
+  if(filtered.some(e=>e.id===previous)){
+    $('exercise').value=previous;
   }
 
-  if (!filtered.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No exercises for this day';
+  if(!filtered.length){
+    const option=document.createElement('option');
+    option.value='';
+    option.textContent='No exercises for this day';
     $('exercise').append(option);
   }
 
   loadPreviousPerformance();
 }
 
-$('sessionType').onchange = () => {
-  filterExercises();
-};
+$('sessionType').onchange=filterExercises;
+$('showAll').onchange=filterExercises;
+$('exercise').onchange=loadPreviousPerformance;
 
-$('showAll').onchange = filterExercises;
+async function loadPreviousPerformance(){
+  const request=++historyRequest;
+  const ex=$('exercise').value;
 
-$('exercise').onchange = loadPreviousPerformance;
-
-async function loadPreviousPerformance() {
-  const request = ++historyRequest;
-  const exerciseId = $('exercise').value;
-
-  if (!exerciseId || !sb) {
-    $('previous').textContent =
-      'No exercise selected.';
+  if(!ex||!sb){
+    $('previous').textContent='No exercise selected.';
     return;
   }
 
-  $('previous').textContent = 'Loading history...';
+  $('previous').textContent='Loading history...';
 
-  try {
-    const sessions = check(
+  try{
+    const sessions=check(
       await sb.from('workout_sessions')
         .select('id,started_at')
-        .order('started_at', { ascending: false })
+        .order('started_at',{ascending:false})
         .limit(200)
     );
 
-    const ids = sessions.map(s => s.id);
+    const ids=sessions.map(s=>s.id);
 
-    if (!ids.length) {
-      if (request === historyRequest) {
-        $('previous').textContent =
-          'No previous performance recorded.';
+    if(!ids.length){
+      if(request===historyRequest){
+        $('previous').textContent='No previous performance.';
       }
       return;
     }
 
-    const sets = check(
+    const sets=check(
       await sb.from('workout_sets')
-        .select(
-          'session_id,set_number,weight_kg,reps,rir'
-        )
-        .eq('exercise_id', exerciseId)
-        .eq('completed', true)
-        .eq('set_type', 'working')
-        .in('session_id', ids)
+        .select('session_id,set_number,weight_kg,reps,rir')
+        .eq('exercise_id',ex)
+        .eq('completed',true)
+        .eq('set_type','working')
+        .in('session_id',ids)
         .limit(500)
     );
 
-    if (request !== historyRequest) return;
+    if(request!==historyRequest)return;
 
-    const sessionMap = new Map(
-      sessions.map(s => [s.id, s.started_at])
+    const dates=new Map(
+      sessions.map(s=>[s.id,s.started_at])
     );
 
-    const prior = sets
-      .filter(s => s.session_id !== sessionId)
-      .sort((a, b) => {
-        const aDate = sessionMap.get(a.session_id) || '';
-        const bDate = sessionMap.get(b.session_id) || '';
-        return bDate.localeCompare(aDate) ||
-          a.set_number - b.set_number;
+    const prior=sets
+      .filter(s=>s.session_id!==sessionId)
+      .sort((a,b)=>{
+        const da=dates.get(a.session_id)||'';
+        const db=dates.get(b.session_id)||'';
+        return db.localeCompare(da) ||
+          a.set_number-b.set_number;
       });
 
-    if (!prior.length) {
-      $('previous').textContent =
-        'No previous performance recorded.';
+    if(!prior.length){
+      $('previous').textContent='No previous performance.';
       return;
     }
 
-    const latestId = prior[0].session_id;
-    const latestSets = prior
-      .filter(s => s.session_id === latestId)
-      .sort((a, b) => a.set_number - b.set_number);
+    const latestId=prior[0].session_id;
+    const latest=prior
+      .filter(s=>s.session_id===latestId)
+      .sort((a,b)=>a.set_number-b.set_number);
 
-    const date = new Date(
-      sessionMap.get(latestId)
-    ).toLocaleDateString('en-AU');
-
-    const root = $('previous');
+    const root=$('previous');
     root.replaceChildren();
 
-    const heading = document.createElement('p');
-    heading.textContent = 'Last session: ' + date;
+    const heading=document.createElement('p');
+    heading.textContent='Previous session: '+
+      new Date(dates.get(latestId)).toLocaleDateString(
+        'en-AU',{timeZone:TZ}
+      );
     root.append(heading);
 
-    for (const set of latestSets) {
-      const line = document.createElement('p');
-      line.textContent =
-        `Set ${set.set_number}: ` +
-        `${set.weight_kg ?? '-'} kg × ` +
-        `${set.reps ?? '-'} reps · ` +
-        `RIR ${set.rir ?? '-'}`;
+    for(const s of latest){
+      const line=document.createElement('p');
+      line.textContent=
+        `Set ${s.set_number}: ${s.weight_kg??'-'} kg × `+
+        `${s.reps??'-'} reps · RIR ${s.rir??'-'}`;
       root.append(line);
     }
 
-  } catch (e) {
-    if (request === historyRequest) {
-      $('previous').textContent =
-        'Could not load history: ' + e.message;
+  }catch(e){
+    if(request===historyRequest){
+      $('previous').textContent=
+        'Could not load history: '+e.message;
     }
   }
 }
 
-$('start').onclick = async () => {
-  try {
-    const { data: { user } } =
-      await sb.auth.getUser();
+$('start').onclick=async()=>{
+  const button=$('start');
+  button.disabled=true;
 
-    if (!user) throw Error('Sign in first.');
+  try{
+    if(sessionId){
+      throw Error(
+        'A session is already active. Refresh the page '+
+        'before starting another session.'
+      );
+    }
 
-    const row = check(
+    const {data:{user}}=await sb.auth.getUser();
+    if(!user)throw Error('Sign in first.');
+
+    const type=$('sessionType').value;
+
+    // Only link the session when it matches today's plan.
+    // An alternative workout remains deliberately unlinked.
+    const plannedId=
+      todaySchedule &&
+      todaySchedule.workout_date===sydneyDate() &&
+      todaySchedule.workout_type===type
+        ? todaySchedule.id
+        : null;
+
+    const row=check(
       await sb.from('workout_sessions')
         .insert({
-          owner_id: user.id,
-          started_at: new Date().toISOString(),
-          session_type: $('sessionType').value
+          owner_id:user.id,
+          started_at:new Date().toISOString(),
+          session_type:type,
+          scheduled_workout_id:plannedId
         })
         .select('id,started_at')
         .single()
     );
 
-    sessionId = row.id;
+    sessionId=row.id;
 
-    $('active').textContent =
-      'Active session: ' +
-      new Date(row.started_at).toLocaleString('en-AU');
+    $('active').textContent=
+      'Active: '+new Date(row.started_at).toLocaleString(
+        'en-AU',{timeZone:TZ}
+      )+
+      (plannedId?' · Linked to schedule':' · Unscheduled');
 
     msg('Session started successfully.');
-
     await loadHistory();
     await loadPreviousPerformance();
 
-  } catch (e) {
-    msg('Could not start session: ' + e.message);
+  }catch(e){
+    msg('Could not start session: '+e.message);
+  }finally{
+    button.disabled=false;
   }
 };
 
-$('save').onclick = async () => {
-  const button = $('save');
-  button.disabled = true;
+$('save').onclick=async()=>{
+  const button=$('save');
+  button.disabled=true;
 
-  try {
-    if (!sessionId) {
-      throw Error('Start a session first.');
-    }
+  try{
+    if(!sessionId)throw Error('Start a session first.');
 
-    const values = [
+    const values=[
       $('weight').value,
       $('reps').value,
       $('rir').value
     ];
 
-    if (values.some(v => v.trim() === '')) {
+    if(values.some(v=>v.trim()==='')){
       throw Error('Enter weight, reps and RIR.');
     }
 
-    const weight = Number($('weight').value);
-    const reps = Number($('reps').value);
-    const rir = Number($('rir').value);
+    const weight=Number($('weight').value);
+    const reps=Number($('reps').value);
+    const rir=Number($('rir').value);
 
-    if (
-      !Number.isFinite(weight) || weight < 0 ||
-      !Number.isInteger(reps) || reps < 0 ||
-      !Number.isFinite(rir) || rir < 0 || rir > 10
-    ) {
+    if(
+      !Number.isFinite(weight)||weight<0||
+      !Number.isInteger(reps)||reps<0||
+      !Number.isFinite(rir)||rir<0||rir>10
+    ){
       throw Error('Check weight, reps and RIR.');
     }
 
-    const ex = $('exercise').value;
-    if (!ex) throw Error('Choose an exercise.');
+    const ex=$('exercise').value;
+    if(!ex)throw Error('Choose an exercise.');
 
-    const rows = check(
+    const rows=check(
       await sb.from('workout_sets')
         .select('set_number')
-        .eq('session_id', sessionId)
-        .eq('exercise_id', ex)
-        .order('set_number', { ascending: false })
+        .eq('session_id',sessionId)
+        .eq('exercise_id',ex)
+        .order('set_number',{ascending:false})
         .limit(1)
     );
 
-    const next = (rows[0]?.set_number ?? 0) + 1;
+    const next=(rows[0]?.set_number??0)+1;
 
     check(
       await sb.from('workout_sets')
         .insert({
-          session_id: sessionId,
-          exercise_id: ex,
-          set_number: next,
-          set_type: 'working',
-          weight_kg: weight,
+          session_id:sessionId,
+          exercise_id:ex,
+          set_number:next,
+          set_type:'working',
+          weight_kg:weight,
           reps,
           rir,
-          completed: true
+          completed:true
         })
     );
 
     msg(
-      `Saved set ${next}: ${weight} kg × ` +
+      `Saved set ${next}: ${weight} kg × `+
       `${reps} reps · RIR ${rir}`
     );
 
     await loadHistory();
 
-  } catch (e) {
-    msg('Could not save set: ' + e.message);
-  } finally {
-    button.disabled = false;
+  }catch(e){
+    msg('Could not save set: '+e.message);
+  }finally{
+    button.disabled=false;
   }
 };
 
-async function loadHistory() {
-  try {
-    const sessions = check(
+async function loadHistory(){
+  try{
+    const sessions=check(
       await sb.from('workout_sessions')
         .select('id,started_at,session_type')
-        .order('started_at', { ascending: false })
+        .order('started_at',{ascending:false})
         .limit(20)
     );
 
-    if (!sessionId) {
-      $('active').textContent =
-        'Start a new session to record sets.';
-    }
+    const ids=sessions.map(s=>s.id);
+    const root=$('history');
+    root.replaceChildren();
 
-    const ids = sessions.map(s => s.id);
-
-    if (!ids.length) {
-      $('history').textContent = 'No sessions yet.';
+    if(!ids.length){
+      root.textContent='No sessions yet.';
       return;
     }
 
-    const sets = check(
+    const sets=check(
       await sb.from('workout_sets')
         .select(
           'session_id,exercise_id,set_number,weight_kg,reps,rir'
         )
-        .in('session_id', ids)
+        .in('session_id',ids)
         .limit(100)
     );
 
-    const sessionMap = new Map(
-      sessions.map(s => [s.id, s.started_at])
+    const dates=new Map(
+      sessions.map(s=>[s.id,s.started_at])
     );
 
-    sets.sort((a, b) => {
-      const aDate = sessionMap.get(a.session_id) || '';
-      const bDate = sessionMap.get(b.session_id) || '';
-      return bDate.localeCompare(aDate) ||
-        a.set_number - b.set_number;
+    sets.sort((a,b)=>{
+      const da=dates.get(a.session_id)||'';
+      const db=dates.get(b.session_id)||'';
+      return db.localeCompare(da) ||
+        a.set_number-b.set_number;
     });
 
-    const root = $('history');
-    root.replaceChildren();
-
-    if (!sets.length) {
-      root.textContent = 'No sets yet.';
+    if(!sets.length){
+      root.textContent='No sets yet.';
       return;
     }
 
-    const table = document.createElement('table');
-    const head = document.createElement('tr');
+    const table=document.createElement('table');
+    const head=document.createElement('tr');
 
-    for (const label of [
-      'Exercise', 'Set', 'Kg', 'Reps', 'RIR'
-    ]) {
-      const th = document.createElement('th');
-      th.textContent = label;
+    for(const name of ['Exercise','Set','Kg','Reps','RIR']){
+      const th=document.createElement('th');
+      th.textContent=name;
       head.append(th);
     }
 
     table.append(head);
 
-    for (const set of sets) {
-      const tr = document.createElement('tr');
+    for(const s of sets){
+      const tr=document.createElement('tr');
 
-      const values = [
-        exerciseMap.get(set.exercise_id) || 'Exercise',
-        set.set_number,
-        set.weight_kg,
-        set.reps,
-        set.rir
-      ];
-
-      for (const value of values) {
-        const td = document.createElement('td');
-        td.textContent = value ?? '-';
+      for(const value of [
+        exerciseMap.get(s.exercise_id)||'Exercise',
+        s.set_number,
+        s.weight_kg,
+        s.reps,
+        s.rir
+      ]){
+        const td=document.createElement('td');
+        td.textContent=value??'-';
         tr.append(td);
       }
 
@@ -684,13 +750,13 @@ async function loadHistory() {
 
     root.append(table);
 
-  } catch (e) {
-    msg('Could not load history: ' + e.message);
+  }catch(e){
+    msg('Could not load history: '+e.message);
   }
 }
 
-init().catch(e => {
-  msg('Setup error: ' + e.message);
+init().catch(e=>{
+  msg('Setup error: '+e.message);
 });
 </script>
 </body>
