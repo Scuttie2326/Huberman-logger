@@ -71,6 +71,14 @@ Loading your training calendar...
 Refresh schedule
 </button>
 </section>
+<section>
+<h2>Garmin recovery</h2>
+<div id="recoveryCard" class="schedule-box" aria-live="polite">
+Loading recovery metrics...
+</div>
+<button class="secondary" id="refreshRecovery">Refresh recovery</button>
+<small>Information only. Garmin metrics are not a diagnosis or an automatic reason to cancel training.</small>
+</section>
 
 <section>
 <h2>Start session</h2>
@@ -255,6 +263,7 @@ async function refreshAuth(){
     await loadExercises();
     await restoreActiveSession();
     await loadSchedule();
+    await loadRecovery();
     await loadHistory();
   }else{
     sessionId=null;
@@ -360,6 +369,88 @@ $('finish').onclick=async()=>{
   }catch(e){msg('Could not finish: '+e.message)}
   finally{$('finish').disabled=false}
 };
+
+function recoveryValue(n,unit='',digits=0){
+  return n===null||n===undefined||!Number.isFinite(Number(n))?'Not available':
+    Number(n).toFixed(digits)+unit;
+}
+function recoveryMetric(root,label,value){
+  const line=document.createElement('p');
+  const strong=document.createElement('strong');
+  strong.textContent=label+': ';
+  line.append(strong,document.createTextNode(value));
+  root.append(line);
+}
+async function loadRecovery(){
+  const root=$('recoveryCard');
+  root.textContent='Loading recovery metrics...';
+  try{
+    const today=sydneyDate();
+    const rows=check(await sb.from('daily_recovery')
+      .select('metric_date,sleep_seconds,sleep_score,hrv_last_night_ms,hrv_weekly_avg_ms,resting_hr_bpm,body_battery_high,body_battery_low,training_readiness,recovery_hours,synced_at')
+      .lte('metric_date',today)
+      .order('metric_date',{ascending:false})
+      .limit(7));
+    root.replaceChildren();
+    if(!rows.length){
+      root.textContent='No recovery metrics available yet. Check your Garmin sync.';
+      return;
+    }
+    const latest=rows[0];
+    const freshness=dayDifference(latest.metric_date,today);
+    const h=document.createElement('div');
+    h.className='metric';
+    h.textContent='Recovery · '+displayDate(latest.metric_date);
+    root.append(h);
+    if(freshness>1){
+      const stale=document.createElement('p');
+      stale.textContent='Older data ('+freshness+' days). Check whether your Garmin sync ran.';
+      root.append(stale);
+    }else if(freshness===1){
+      const last=document.createElement('p');
+      last.className='muted';
+      last.textContent='Latest available: yesterday. Today’s data has not synced yet.';
+      root.append(last);
+    }
+    recoveryMetric(root,'Sleep duration',latest.sleep_seconds==null?'Not available':(Number(latest.sleep_seconds)/3600).toFixed(1)+' hours');
+    recoveryMetric(root,'Sleep score',recoveryValue(latest.sleep_score,' / 100'));
+    recoveryMetric(root,'Overnight HRV',recoveryValue(latest.hrv_last_night_ms,' ms'));
+    recoveryMetric(root,'7-day HRV baseline',recoveryValue(latest.hrv_weekly_avg_ms,' ms'));
+    recoveryMetric(root,'Resting HR',recoveryValue(latest.resting_hr_bpm,' bpm'));
+    recoveryMetric(root,'Body Battery high',recoveryValue(latest.body_battery_high,' / 100'));
+    recoveryMetric(root,'Body Battery low',recoveryValue(latest.body_battery_low,' / 100'));
+    recoveryMetric(root,'Garmin training readiness',recoveryValue(latest.training_readiness,' / 100'));
+    const guidance=document.createElement('p');
+    const hrv=Number(latest.hrv_last_night_ms);
+    const avg=Number(latest.hrv_weekly_avg_ms);
+    if(freshness>1){
+      guidance.textContent='No current readiness assessment: recovery data is stale.';
+    }else if(latest.hrv_last_night_ms!=null&&latest.hrv_weekly_avg_ms!=null&&avg>0&&hrv<avg*0.8){
+      guidance.textContent='Overnight HRV is more than 20% below its weekly average. Check how you feel and your training fatigue before choosing intensity; a single reading is not decisive.';
+    }else{
+      guidance.textContent='Recovery metrics are context, not a prescription. Check energy, soreness and recent training before changing intensity.';
+    }
+    root.append(guidance);
+    if(rows.length>1){
+      const details=document.createElement('details');
+      const summary=document.createElement('summary');
+      summary.textContent='Recent HRV and sleep history';
+      details.append(summary);
+      for(const row of rows){
+        const p=document.createElement('p');
+        p.textContent=displayDate(row.metric_date)+' · HRV '+recoveryValue(row.hrv_last_night_ms,' ms')+' · Sleep '+(row.sleep_seconds==null?'Not available':(Number(row.sleep_seconds)/3600).toFixed(1)+' h');
+        details.append(p);
+      }
+      root.append(details);
+    }
+    const stamp=document.createElement('small');
+    stamp.textContent='Last database sync: '+(latest.synced_at?new Date(latest.synced_at).toLocaleString('en-AU',{timeZone:TZ}):'unknown');
+    root.append(stamp);
+  }catch(e){
+    root.textContent='Could not load recovery metrics: '+e.message;
+  }
+}
+$('refreshRecovery').onclick=loadRecovery;
 
 async function loadSchedule(){
   const root=$('todayCard');
