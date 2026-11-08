@@ -31,6 +31,7 @@ td,th{padding:8px 3px;text-align:left;border-bottom:1px solid #344760}
 .check-row label{margin:0}
 .metric{font-size:1.5rem;font-weight:750;margin:6px 0}
 .tag{display:inline-block;background:#30425b;border-radius:20px;padding:5px 10px;font-size:12px;margin:3px 4px 3px 0}
+textarea{width:100%;padding:12px;border-radius:9px;border:1px solid #60728b;font-size:14px;background:#0f1c2d;color:white;resize:vertical;line-height:1.5}
 a{color:#9bd6ff}
 </style>
 </head>
@@ -99,6 +100,15 @@ Loading recovery metrics...
 <small>Information only. Garmin metrics are not a diagnosis or an automatic reason to cancel training.</small>
 </section>
 
+<section>
+<h2>ChatGPT coaching brief</h2>
+<p class="muted">Create a private snapshot for your ChatGPT Project: current cycle, planned sessions, recent workouts, sets and Garmin recovery. Nothing is automatically uploaded or shared.</p>
+<button id="buildBrief">Generate coaching brief</button>
+<button id="copyBrief" class="secondary" disabled>Copy coaching brief</button>
+<label for="coachingBrief">Review before sharing</label>
+<textarea id="coachingBrief" readonly rows="12" placeholder="Generate the brief to see your data here."></textarea>
+<small>Includes personal training and recovery information. Only paste it into a chat or Project you trust. Never include passwords, Garmin API tokens or Supabase secret keys.</small>
+</section>
 <section>
 <h2>Start session</h2>
 <label>Workout type</label>
@@ -652,6 +662,153 @@ function showSelectedPrescription(){
   notice.textContent=p?'Target ('+(p.is_primary?'primary':'optional substitute')+'): '+p.target_sets+' × '+p.min_reps+'–'+p.max_reps+' reps · '+p.rir_target+' RIR · rest '+p.rest_seconds+'s':'No structured target for this exercise.';
   if(p)$('loadIncrement').value=p.movement_type==='compound'?'2.5':'1';
 }
+
+function shiftISO(date,days){
+  const d=new Date(date+'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate()+days);
+  return d.toISOString().slice(0,10);
+}
+function asSydneyDateTime(iso){
+  return iso?new Date(iso).toLocaleString('en-AU',{
+    timeZone:TZ,year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'
+  }):'Not recorded';
+}
+function limitedText(s,max=350){
+  return s==null?'':String(s).replace(/[\r\n]+/g,' ').slice(0,max);
+}
+function valueOrNA(value,suffix=''){
+  return value===null||value===undefined?'N/A':String(value)+suffix;
+}
+async function makeCoachingBrief(){
+  const {data:{user},error:userError}=await sb.auth.getUser();
+  if(userError||!user)throw Error('Sign in to generate your private summary.');
+  const today=sydneyDate();
+  const start14=shiftISO(today,-13);
+  const start30=shiftISO(today,-29);
+  // All queries use the signed-in client's RLS-protected tables.
+  // Never query raw Garmin source_details or auth credentials.
+  const [cyclesR,scheduleR,recoveryR,checkinsR,sessionsR]=await Promise.all([
+    sb.from('training_cycles').select('id,started_on').lte('started_on',today).order('started_on',{ascending:false}).limit(10),
+    sb.from('scheduled_workouts').select('id,cycle_id,workout_date,workout_type,phase,status')
+      .gte('workout_date',start30).lte('workout_date',today).order('workout_date',{ascending:false}).limit(100),
+    sb.from('daily_recovery').select('metric_date,sleep_seconds,sleep_score,hrv_last_night_ms,hrv_weekly_avg_ms,resting_hr_bpm,body_battery_high,body_battery_low,training_readiness')
+      .gte('metric_date',start14).lte('metric_date',today).order('metric_date',{ascending:false}).limit(14),
+    sb.from('training_checkins').select('checkin_date,energy,soreness,other_training,notes')
+      .gte('checkin_date',start14).lte('checkin_date',today).order('checkin_date',{ascending:false}).limit(14),
+    sb.from('workout_sessions').select('id,started_at,ended_at,session_type,rpe,notes,scheduled_workout_id')
+      .gte('started_at',start30+'T00:00:00+11:00').order('started_at',{ascending:false}).limit(100)
+  ]);
+  const [cycles,schedules,recovery,checkins,sessions]=[cyclesR,scheduleR,recoveryR,checkinsR,sessionsR].map(check);
+  const ids=sessions.map(row=>row.id);
+  let sets=[];
+  if(ids.length){
+    sets=check(await sb.from('workout_sets')
+      .select('session_id,exercise_id,set_number,set_type,weight_kg,reps,rir,completed')
+      .in('session_id',ids).order('set_number').limit(1000));
+  }
+  const current=cycles.find(row=>{
+    const age=dayDifference(row.started_on,today);
+    return age>=0&&age<91;
+  });
+  const week=current?Math.floor(dayDifference(current.started_on,today)/7)+1:null;
+  const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':week?'strength':null;
+  const currentSchedule=schedules.find(row=>row.workout_date===today&&row.cycle_id===current?.id);
+  const lines=[
+    '# Private training coaching brief',
+    'Generated: '+asSydneyDateTime(new Date().toISOString())+' (Australia/Sydney)',
+    'Scope: recovery and check-ins '+start14+' to '+today+'; sessions and planned workouts '+start30+' to '+today+'.',
+    'This summary contains private fitness and recovery data. It is not automatically sent anywhere.',
+    '',
+    '## Current training cycle',
+    current?'Cycle start: '+current.started_on+'; week: '+week+'/13; phase: '+phase+'.':'No currently active cycle.',
+    currentSchedule?'Today planned: '+currentSchedule.workout_type+'; status: '+currentSchedule.status+'.':'No scheduled workout found for today.',
+    '',
+    '## Garmin recovery (last 14 calendar days; missing readings are N/A)',
+  ];
+  if(!recovery.length)lines.push('No Garmin records in the window.');
+  else for(const r of recovery){
+    lines.push(
+      r.metric_date+': sleep '+(r.sleep_seconds==null?'N/A':(Number(r.sleep_seconds)/3600).toFixed(1)+' h')+
+      ', score '+valueOrNA(r.sleep_score)+
+      ', HRV '+valueOrNA(r.hrv_last_night_ms,' ms')+
+      ', 7d HRV '+valueOrNA(r.hrv_weekly_avg_ms,' ms')+
+      ', resting HR '+valueOrNA(r.resting_hr_bpm,' bpm')+
+      ', observed Body Battery high/low '+valueOrNA(r.body_battery_high)+'/'+valueOrNA(r.body_battery_low)+
+      ', readiness '+valueOrNA(r.training_readiness)
+    );
+  }
+  lines.push('','## Subjective check-ins (last 14 calendar days)');
+  if(!checkins.length)lines.push('No check-ins recorded.');
+  else for(const r of checkins)lines.push(
+    r.checkin_date+': energy '+r.energy+'/5, soreness '+r.soreness+'/5, additional training '+r.other_training+
+    (r.notes?'; notes: '+limitedText(r.notes):'')
+  );
+  lines.push('','## Recent training sessions and sets (last 30 calendar days)');
+  const bySession=new Map();
+  for(const set of sets){
+    if(!bySession.has(set.session_id))bySession.set(set.session_id,[]);
+    bySession.get(set.session_id).push(set);
+  }
+  if(!sessions.length)lines.push('No sessions recorded.');
+  else for(const row of sessions){
+    const state=row.ended_at?'finished':'unfinished';
+    lines.push('### '+asSydneyDateTime(row.started_at)+' — '+row.session_type+' ('+state+')'+
+      '; session RPE '+valueOrNA(row.rpe)+(row.notes?'; notes: '+limitedText(row.notes):''));
+    const group=bySession.get(row.id)||[];
+    if(!group.length)lines.push('No sets recorded.');
+    else for(const set of group){
+      lines.push('- '+(exerciseMap.get(set.exercise_id)||'Unrecognised exercise')+
+        ' set '+set.set_number+' ('+set.set_type+'): '+valueOrNA(set.weight_kg,' kg')+
+        ' × '+valueOrNA(set.reps,' reps')+', RIR '+valueOrNA(set.rir)+
+        (set.completed?'':' [not completed]'));
+    }
+  }
+  if(sessions.length===100||sets.length===1000){
+    lines.push('WARNING: Export truncated at 100 sessions / 1000 sets. Request pagination before long-term analysis.');
+  }
+  lines.push('','## Planned workout adherence (last 30 calendar days)');
+  if(!schedules.length)lines.push('No scheduled workouts in the date range.');
+  else{
+    const counts={};
+    for(const s of schedules)counts[s.status]=(counts[s.status]||0)+1;
+    lines.push(Object.entries(counts).map(([status,n])=>status+': '+n).join('; '));
+    lines.push('Statuses are plan records, not proof of exercise completion.');
+  }
+  lines.push('','## Coaching instructions',
+    'Assess training load, recovery trends, exercise performance, and schedule fit. Separate observations from hypotheses.',
+    'Do not assume unrecorded surfing, runs, lifts or recovery metrics occurred.',
+    'No automatic weight changes. Ask for equipment increments, injuries, technique issues, and preferences before individual prescriptions.',
+    'Treat isolated HRV or Body Battery readings as context, not a clinical diagnosis or definitive workout decision.'
+  );
+  return lines.join('\n');
+}
+$('buildBrief').onclick=async()=>{
+  const button=$('buildBrief');
+  button.disabled=true;
+  $('copyBrief').disabled=true;
+  $('coachingBrief').value='';
+  try{
+    const text=await makeCoachingBrief();
+    $('coachingBrief').value=text;
+    $('copyBrief').disabled=false;
+    msg('Private coaching brief generated locally. Review before copying.');
+  }catch(e){
+    msg('Could not generate coaching brief: '+e.message);
+  }finally{button.disabled=false}
+};
+$('copyBrief').onclick=async()=>{
+  const text=$('coachingBrief').value;
+  if(!text)return;
+  try{
+    await navigator.clipboard.writeText(text);
+    msg('Coaching brief copied. Paste into your ChatGPT Project.');
+  }catch(e){
+    $('coachingBrief').focus();
+    $('coachingBrief').select();
+    msg('Clipboard access was blocked. Text selected: use your phone’s Copy action.');
+  }
+};
+
 async function loadSchedule(){
   const root=$('todayCard');
   root.textContent='Loading training schedule...';
