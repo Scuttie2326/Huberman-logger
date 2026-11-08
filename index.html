@@ -335,13 +335,26 @@ $('finish').onclick=async()=>{
     if(rpe!==null&&(!Number.isFinite(rpe)||rpe<0||rpe>10))throw Error('RPE must be 0–10.');
     const row=check(await sb.from('workout_sessions')
       .update({ended_at:new Date().toISOString(),rpe,notes:$('sessionNotes').value.trim()||null})
-      .eq('id',sessionId).is('ended_at',null).select('id').maybeSingle());
+      .eq('id',sessionId).is('ended_at',null).select('id,scheduled_workout_id').maybeSingle());
     if(!row)throw Error('Session already finished or not accessible.');
     sessionId=null;
     $('start').disabled=false;
     $('finishControls').style.display='none';
     $('active').textContent='Workout completed.';
-    msg('Session saved. Schedule status is unchanged until verified completion logic is implemented.');
+    let calendarNote='Unscheduled workout: calendar unchanged.';
+    if(row.scheduled_workout_id){
+      try{
+        const updated=check(await sb.from('scheduled_workouts')
+          .update({status:'completed'})
+          .eq('id',row.scheduled_workout_id)
+          .select('id').maybeSingle());
+        calendarNote=updated?'Calendar marked completed.':'Calendar not updated; check schedule permissions.';
+      }catch(scheduleError){
+        calendarNote='Workout saved, but calendar update failed: '+scheduleError.message;
+      }
+    }
+    msg('Workout saved. '+calendarNote);
+    await loadSchedule();
     await loadHistory();
     await loadPreviousPerformance();
   }catch(e){msg('Could not finish: '+e.message)}
