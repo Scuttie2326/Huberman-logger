@@ -417,8 +417,8 @@ async function loadRecovery(){
     recoveryMetric(root,'Overnight HRV',recoveryValue(latest.hrv_last_night_ms,' ms'));
     recoveryMetric(root,'7-day HRV baseline',recoveryValue(latest.hrv_weekly_avg_ms,' ms'));
     recoveryMetric(root,'Resting HR',recoveryValue(latest.resting_hr_bpm,' bpm'));
-    recoveryMetric(root,'Body Battery high',recoveryValue(latest.body_battery_high,' / 100'));
-    recoveryMetric(root,'Body Battery low',recoveryValue(latest.body_battery_low,' / 100'));
+    recoveryMetric(root,'Body Battery observed high',recoveryValue(latest.body_battery_high,' / 100'));
+    recoveryMetric(root,'Body Battery observed low',recoveryValue(latest.body_battery_low,' / 100'));
     recoveryMetric(root,'Garmin training readiness',recoveryValue(latest.training_readiness,' / 100'));
     const guidance=document.createElement('p');
     const hrv=Number(latest.hrv_last_night_ms);
