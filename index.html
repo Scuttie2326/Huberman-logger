@@ -482,7 +482,7 @@ async function loadRecovery(){
     root.textContent='Could not load recovery metrics: '+e.message;
   }
 }
-$('refreshRecovery').onclick=loadRecovery;
+$('refreshRecovery').onclick=async()=>{await loadRecovery();await loadPrescription();};
 
 
 function readinessFlag(){
@@ -548,6 +548,7 @@ $('saveCheckin').onclick=async()=>{
     check(await sb.from('training_checkins').upsert(row,{onConflict:'owner_id,checkin_date'}));
     currentCheckin=row;
     updateReadiness();
+    await loadPrescription();
     await loadPreviousPerformance();
     msg('Readiness check-in saved.');
   }catch(e){msg('Unable to save check-in: '+e.message)}
@@ -565,7 +566,17 @@ async function loadPrescription(){
   const week=Math.floor(dayDifference(currentCycle.started_on,sydneyDate())/7)+1;
   const phase=week===13?'recovery':week>=5&&week<=8?'hypertrophy':'strength';
   if(!Object.hasOwn(dayMapping,type)){
-    root.textContent='Today’s '+(workoutNames[type]||type)+' session follows the calendar guidance. This first release does not prescribe cardio intervals or workloads.';
+    const easy=phase==='recovery';
+    const plans={
+      zone2:'60–75 minutes at a sustainable conversational effort. Start shorter if needed.',
+      recovery:'20–30 minutes of easy mobility, stretching or walking. Recovery is not another hard session.',
+      cardio:'Approximately 35 minutes of controlled moderate cardio; include warm-up and cool-down.',
+      hiit:'Example: warm up 10 minutes, then 4 × 2 minutes hard with 3 minutes easy between intervals; cool down. Scale to fitness and avoid all-out work when fatigued.'
+    };
+    root.textContent=easy
+      ? 'Recovery week: 20–30 minutes easy movement or rest. Avoid high-intensity intervals this week.'
+      : (plans[type]||'Follow your scheduled session.')+
+        (readinessFlag()==='caution'?' Recovery caution: consider an easier session today.':'');
     showSelectedPrescription();
     return;
   }
@@ -585,6 +596,11 @@ async function loadPrescription(){
     const heading=document.createElement('p');
     heading.textContent='Week '+week+' · '+phase.toUpperCase()+' · '+(schedule?.workout_type===type?'Scheduled':'Substitute workout');
     root.append(heading);
+    if(readinessFlag()==='caution'){
+      const caution=document.createElement('p');
+      caution.textContent='Recovery caution: consider fewer working sets and easier loads; do not chase personal bests.';
+      root.append(caution);
+    }
     for(const p of prescriptions){
       const line=document.createElement('div');
       line.className='history-box';
